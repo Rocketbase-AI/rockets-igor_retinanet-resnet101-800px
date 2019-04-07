@@ -37,7 +37,7 @@ def postprocess(self, detections: torch.Tensor, input_img: Image, visualize: boo
         visualize (bool): If True outputs image with annotations else a list of bounding boxes
     """
     img = np.array(input_img)
-    detections = non_max_suppression(detections.clone().detach(), 80, conf_thres=0.2, nms_thres=0.2)[0]
+    detections = non_max_suppression(detections.clone().detach(), 80)[0]
 
     new_w, new_h, pad_w, pad_h, scale = get_new_size_and_padding(input_img)
 
@@ -47,18 +47,19 @@ def postprocess(self, detections: torch.Tensor, input_img: Image, visualize: boo
     # Image height and width after padding is removed
 
 
-    unpad_h = new_h - pad_h
-    unpad_w = new_w - pad_w
+    unpad_h = new_h
+    unpad_w = new_w
 
     list_detections = []
     for detection in detections:
-        print(detection.int())
+        # print(detection.int())
         x1, y1, x2, y2, conf, cls_conf, cls_pred = detection.data.cpu().numpy()
         # Rescale coordinates to original dimensions
         box_h = ((y2 - y1) / unpad_h) * img.shape[0]
         box_w = ((x2 - x1) / unpad_w) * img.shape[1]
         y1 = ((y1 - pad_h // 2) / unpad_h) * img.shape[0]
         x1 = ((x1 - pad_w // 2) / unpad_w) * img.shape[1]
+
         list_detections.append((x1, y1, box_h, box_w, conf, cls_conf, cls_pred))
 
     if visualize:
@@ -94,6 +95,8 @@ def non_max_suppression(prediction, num_classes, conf_thres=0.5, nms_thres=0.4):
 
     output = [None for _ in range(len(prediction))]
     for image_i, image_pred in enumerate(prediction):
+        # print(image_i, image_pred)
+        # print(image_pred.shape)
         # Filter out confidence scores below threshold
         conf_mask = (image_pred[:, 4] >= conf_thres).squeeze()
         image_pred = image_pred[conf_mask]
@@ -190,6 +193,7 @@ def get_new_size_and_padding(img: Image):
 
     pad_w = 32 - new_h % 32
     pad_h = 32 - new_w % 32
+
     return new_w, new_h, pad_w, pad_h, scale
 
 
@@ -206,16 +210,16 @@ def preprocess(self, x):
 
     new_w, new_h, pad_w, pad_h, _ = get_new_size_and_padding(x)
 
-    print(x.size, new_w, new_h)
+    # print(x.size, new_w, new_h)
 
     input_transform = transforms.Compose([
-        transforms.Resize((new_w, new_h)),
+        transforms.Resize((new_h, new_w)),
         transforms.ToTensor(),
         transforms.Normalize((0.485, 0.456, 0.406),
                              (0.229, 0.224, 0.225))
     ])
 
-    padding = torch.nn.ConstantPad2d((pad_w//2, pad_w//2, pad_h//2, pad_h//2), 0.0)
+    padding = torch.nn.ConstantPad2d((pad_h//2, pad_h//2, pad_w//2, pad_w//2), 0.0)
 
     if type(x) == list:
         out_tensor = None
@@ -239,22 +243,15 @@ def build():
     model.load_state_dict(torch.load(os.path.join(os.path.realpath(os.path.dirname(__file__)), "weights.pth"),
                                      map_location=torch.device('cpu')))
 
-    # model = RRDB_Net(3, 3, 64, 23, gc=32, upscale=4, norm_type=None, act_type='leakyrelu',
-    #                  mode='CNA', res_scale=1, upsample_mode='upconv')
-    # model.load_state_dict(torch.load(os.path.join(os.path.realpath(os.path.dirname(__file__)),
-    #                                               "weights.pth")),
-    #                       strict=True)
-
     model.postprocess = types.MethodType(postprocess, model)
     model.preprocess = types.MethodType(preprocess, model)
+
     classes = load_classes(os.path.join(os.path.realpath(os.path.dirname(__file__)), "coco.data"))
 
     model.postprocess = types.MethodType(postprocess, model)
     model.preprocess = types.MethodType(preprocess, model)
     model.label_to_class = types.MethodType(label_to_class, model)
     setattr(model, 'classes', classes)
-
-
 
     return model
 
