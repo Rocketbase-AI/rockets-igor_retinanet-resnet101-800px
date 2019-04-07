@@ -714,6 +714,8 @@ class ResNet(nn.Module):
         if self.training:
             return self.focalLoss(classification, regression, anchors, annotations)
         else:
+
+
             transformed_anchors = self.regressBoxes(anchors, regression)
             transformed_anchors = self.clipBoxes(transformed_anchors, img_batch)
 
@@ -734,12 +736,12 @@ class ResNet(nn.Module):
 
             #nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(dim=1)
 
-            box_corner = transformed_anchors.new(transformed_anchors.shape)
-            box_corner[:, :, 0] = transformed_anchors[:, :, 0] - transformed_anchors[:, :, 2] / 2
-            box_corner[:, :, 1] = transformed_anchors[:, :, 1] - transformed_anchors[:, :, 3] / 2
-            box_corner[:, :, 2] = transformed_anchors[:, :, 0] + transformed_anchors[:, :, 2] / 2
-            box_corner[:, :, 3] = transformed_anchors[:, :, 1] + transformed_anchors[:, :, 3] / 2
-            transformed_anchors[:, :, :4] = box_corner[:, :, :4]
+            # box_corner = transformed_anchors.new(transformed_anchors.shape)
+            # box_corner[:, :, 0] = transformed_anchors[:, :, 0] - transformed_anchors[:, :, 2] / 2
+            # box_corner[:, :, 1] = transformed_anchors[:, :, 1] - transformed_anchors[:, :, 3] / 2
+            # box_corner[:, :, 2] = transformed_anchors[:, :, 0] + transformed_anchors[:, :, 2] / 2
+            # box_corner[:, :, 3] = transformed_anchors[:, :, 1] + transformed_anchors[:, :, 3] / 2
+            # transformed_anchors[:, :, :4] = box_corner[:, :, :4]
 
             out = torch.cat((transformed_anchors, scores), dim=2)
             out = torch.cat((out, classification), dim=2)

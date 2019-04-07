@@ -7,6 +7,21 @@ from PIL import Image, ImageDraw
 import numpy as np
 
 
+def load_classes(path):
+    """
+    Loads class labels at 'path'
+    """
+    fp = open(path, "r")
+    names = fp.read().split("\n")[:-1]
+    return names
+
+
+def label_to_class(self, label: int) -> str:
+    """Returns string of class name given index
+    """
+    return self.classes[label]
+
+
 def postprocess(self, detections: torch.Tensor, input_img: Image, visualize: bool = False):
     """Converts pytorch tensor into interpretable format
 
@@ -22,22 +37,23 @@ def postprocess(self, detections: torch.Tensor, input_img: Image, visualize: boo
         visualize (bool): If True outputs image with annotations else a list of bounding boxes
     """
     img = np.array(input_img)
-    detections = non_max_suppression(detections.clone().detach(), 80)
+    detections = non_max_suppression(detections.clone().detach(), 80, conf_thres=0.2, nms_thres=0.2)[0]
 
-    print(detections)
-
-    new_w, new_h, pad_w, pad_h = get_new_size_and_padding(input_img)
+    new_w, new_h, pad_w, pad_h, scale = get_new_size_and_padding(input_img)
 
     # The amount of padding that was added
     #pad_w = max(img.shape[0] - img.shape[1], 0) * (new_w / max(img.shape))
     #pad_h = max(img.shape[1] - img.shape[0], 0) * (new_h / max(img.shape))
     # Image height and width after padding is removed
+
+
     unpad_h = new_h - pad_h
     unpad_w = new_w - pad_w
 
     list_detections = []
     for detection in detections:
-        x1, y1, x2, y2, conf, cls_conf, cls_pred = detection[0].data.cpu().numpy()
+        print(detection.int())
+        x1, y1, x2, y2, conf, cls_conf, cls_pred = detection.data.cpu().numpy()
         # Rescale coordinates to original dimensions
         box_h = ((y2 - y1) / unpad_h) * img.shape[0]
         box_w = ((x2 - x1) / unpad_w) * img.shape[1]
@@ -49,10 +65,11 @@ def postprocess(self, detections: torch.Tensor, input_img: Image, visualize: boo
         img_out = input_img
         ctx = ImageDraw.Draw(img_out, 'RGBA')
         for bbox in list_detections:
-            x1, y1, x2, y2, conf, cls_conf, cls_pred = bbox
-            ctx.rectangle([(x1, y1), (x1 + x2, y1 + y2)], outline=(255, 0, 0, 255), width=2)
+            x1, y1, box_h, box_w, conf, cls_conf, cls_pred = bbox
+            ctx.rectangle([(x1, y1), (x1 + box_w, y1 + box_h)], outline=(255, 0, 0, 255), width=2)
             ctx.text((x1 + 5, y1 + 10),
                      text="{}, {:.2f}, {:.2f}".format(self.label_to_class(int(cls_pred)), cls_conf, conf))
+
         del ctx
         return img_out
 
@@ -173,7 +190,7 @@ def get_new_size_and_padding(img: Image):
 
     pad_w = 32 - new_h % 32
     pad_h = 32 - new_w % 32
-    return new_w, new_h, pad_w, pad_h
+    return new_w, new_h, pad_w, pad_h, scale
 
 
 def preprocess(self, x):
@@ -187,15 +204,18 @@ def preprocess(self, x):
         x (list or PIL.Image): input image or list of images.
     """
 
-    new_w, new_h, pad_w, pad_h = get_new_size_and_padding(x)
+    new_w, new_h, pad_w, pad_h, _ = get_new_size_and_padding(x)
+
+    print(x.size, new_w, new_h)
 
     input_transform = transforms.Compose([
         transforms.Resize((new_w, new_h)),
-        transforms.Pad((pad_w//2, pad_h//2)),
         transforms.ToTensor(),
         transforms.Normalize((0.485, 0.456, 0.406),
                              (0.229, 0.224, 0.225))
     ])
+
+    padding = torch.nn.ConstantPad2d((pad_w//2, pad_w//2, pad_h//2, pad_h//2), 0.0)
 
     if type(x) == list:
         out_tensor = None
@@ -208,8 +228,8 @@ def preprocess(self, x):
     else:
         out_tensor = input_transform(x).unsqueeze(0)
 
-    print(out_tensor.shape)
-    print(x.size)
+
+    out_tensor = padding(out_tensor)
     return out_tensor
 
 
@@ -227,6 +247,14 @@ def build():
 
     model.postprocess = types.MethodType(postprocess, model)
     model.preprocess = types.MethodType(preprocess, model)
+    classes = load_classes(os.path.join(os.path.realpath(os.path.dirname(__file__)), "coco.data"))
+
+    model.postprocess = types.MethodType(postprocess, model)
+    model.preprocess = types.MethodType(preprocess, model)
+    model.label_to_class = types.MethodType(label_to_class, model)
+    setattr(model, 'classes', classes)
+
+
 
     return model
 
