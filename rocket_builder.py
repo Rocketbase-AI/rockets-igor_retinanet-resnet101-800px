@@ -197,18 +197,46 @@ def get_new_size_and_padding(img: Image):
     return new_w, new_h, pad_w, pad_h, scale
 
 
-def preprocess(self, x):
+def train_forward(self, x: torch.Tensor, targets: torch.Tensor):
+    """Performs forward pass and returns loss of the model
+
+    The loss can be directly fed into an optimizer.
+    """
+    self.training = True
+    loss = self.forward((x, targets))
+    self.training = False
+    return loss
+
+
+def preprocess(self, img: Image, labels: list = None) -> torch.Tensor:
     """Converts PIL Image or Array into pytorch tensor specific to this model
 
     Handles all the necessary steps for preprocessing such as resizing, normalization.
     Works with both single images and list/batch of images. Input image file is expected
     to be a `PIL.Image` object with 3 color channels.
+    Labels must have the following format: `x1, y1, x2, y2, category_id`
 
     Args:
-        x (list or PIL.Image): input image or list of images.
+        img (PIL.Image): input image
+        labels (list): list of bounding boxes and class labels
     """
 
-    new_w, new_h, pad_w, pad_h, _ = get_new_size_and_padding(x)
+    # todo: support batch size bigger than 1 for training and inference
+    # todo: replace this hacky solution and work directly with tensors
+    if type(img) == Image.Image:
+        # PIL.Image
+        pass
+    elif type(img) == torch.Tensor:
+        # list of tensors
+        img = img[0].cpu()
+        img = transforms.ToPILImage()(img)
+    elif "PIL" in str(type(img)): # type if file just has been opened
+        img = img.convert("RGB")
+    else:
+        raise TypeError("wrong input type: got {} but expected list of PIL.Image, "
+                        "single PIL.Image or torch.Tensor".format(type(img)))
+
+    new_w, new_h, pad_w, pad_h, _ = get_new_size_and_padding(img)
 
     # print(x.size, new_w, new_h)
 
@@ -221,20 +249,71 @@ def preprocess(self, x):
 
     padding = torch.nn.ConstantPad2d((pad_h//2, pad_h//2, pad_w//2, pad_w//2), 0.0)
 
-    if type(x) == list:
-        out_tensor = None
-        for elem in x:
-            out = input_transform(elem).unsqueeze(0)
-            if out_tensor is not None:
-                torch.cat((out_tensor, out), 0)
-            else:
-                out_tensor = out
-    else:
-        out_tensor = input_transform(x).unsqueeze(0)
-
-
+    out_tensor = input_transform(img).unsqueeze(0)
     out_tensor = padding(out_tensor)
-    return out_tensor
+
+    if labels is None:
+        return out_tensor
+
+    # if type(img) == list:
+    #     out_tensor = None
+    #     for elem in img:
+    #         out = input_transform(elem).unsqueeze(0)
+    #         if out_tensor is not None:
+    #             torch.cat((out_tensor, out), 0)
+    #         else:
+    #             out_tensor = out
+    # else:
+    #     out_tensor = input_transform(img).unsqueeze(0)
+
+    max_objects = 50
+    filled_labels = np.zeros((max_objects, 5))  # max objects in an image for training=50, 5=(x1,y1,x2,y2,category_id)
+    if labels is not None:
+        for idx, label in enumerate(labels):
+
+            # add padding
+            label[0] += pad_w//2
+            label[1] += pad_h//2
+            label[2] += pad_w // 2
+            label[3] += pad_h // 2
+
+            padded_w = new_w + pad_w
+            padded_h = new_h + pad_h
+
+            # resize coordinates to match Yolov3 input size
+            scale_x = new_w / padded_w
+            scale_y = new_h / padded_h
+
+            label[0] *= scale_x
+            label[1] *= scale_y
+            label[2] *= scale_x
+            label[3] *= scale_y
+
+            x1 = label[0]
+            y1 = label[1]
+            x2 = label[2]
+            y2 = label[3]
+
+            # x1 = label[0] / new_w
+            # y1 = label[1] / new_h
+            #
+            # cw = (label[2]) / new_w
+            # ch = (label[3]) / new_h
+            #
+            # cx = (x1 + (x1 + cw)) / 2.0
+            # cy = (y1 + (y1 + ch)) / 2.0
+
+            filled_labels[idx] = np.asarray([x1, y1, x2, y2, label[4]])
+            if idx >= max_objects:
+                break
+    filled_labels = torch.from_numpy(filled_labels)
+
+    return out_tensor, filled_labels.unsqueeze(0)
+
+
+
+#    out_tensor = padding(out_tensor)
+ #   return out_tensor
 
 
 def build():
@@ -251,6 +330,7 @@ def build():
     model.postprocess = types.MethodType(postprocess, model)
     model.preprocess = types.MethodType(preprocess, model)
     model.label_to_class = types.MethodType(label_to_class, model)
+    model.train_forward = types.MethodType(train_forward, model)
     setattr(model, 'classes', classes)
 
     return model

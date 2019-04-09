@@ -91,6 +91,7 @@ class Anchors(nn.Module):
             self.scales = np.array([2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)])
 
     def forward(self, image):
+        device = "cpu" if image.type() == torch.FloatTensor().type() else "cuda"
 
         image_shape = image.shape[2:]
         image_shape = np.array(image_shape)
@@ -106,7 +107,7 @@ class Anchors(nn.Module):
 
         all_anchors = np.expand_dims(all_anchors, axis=0)
 
-        return torch.from_numpy(all_anchors.astype(np.float32))#.cuda()
+        return torch.from_numpy(all_anchors.astype(np.float32)).to(device)
 
 
 def generate_anchors(base_size=16, ratios=None, scales=None):
@@ -358,6 +359,8 @@ class FocalLoss(nn.Module):
     #def __init__(self):
 
     def forward(self, classifications, regressions, anchors, annotations):
+        device = "cpu" if classifications.type() == torch.FloatTensor().type() else "cuda"
+
         alpha = 0.25
         gamma = 2.0
         batch_size = classifications.shape[0]
@@ -380,10 +383,8 @@ class FocalLoss(nn.Module):
             bbox_annotation = bbox_annotation[bbox_annotation[:, 4] != -1]
 
             if bbox_annotation.shape[0] == 0:
-                regression_losses.append(torch.tensor(0).float()#.cuda() \
-                )
-                classification_losses.append(torch.tensor(0).float()#.cuda() \
-                )
+                regression_losses.append(torch.tensor(0).float().to(device))
+                classification_losses.append(torch.tensor(0).float().to(device))
 
                 continue
 
@@ -398,7 +399,7 @@ class FocalLoss(nn.Module):
 
             # compute the loss for classification
             targets = torch.ones(classification.shape) * -1
-            targets = targets#.cuda()
+            targets = targets.to(device)
 
             targets[torch.lt(IoU_max, 0.4), :] = 0
 
@@ -411,7 +412,7 @@ class FocalLoss(nn.Module):
             targets[positive_indices, :] = 0
             targets[positive_indices, assigned_annotations[positive_indices, 4].long()] = 1
 
-            alpha_factor = alpha * torch.ones(targets.shape)#.cuda()
+            alpha_factor = alpha * torch.ones(targets.shape).to(device)
 
             alpha_factor = torch.where(torch.eq(targets, 1.), alpha_factor, 1. - alpha_factor)
             focal_weight = torch.where(torch.eq(targets, 1.), 1. - classification, classification)
@@ -422,8 +423,7 @@ class FocalLoss(nn.Module):
             # cls_loss = focal_weight * torch.pow(bce, gamma)
             cls_loss = focal_weight * bce
 
-            cls_loss = torch.where(torch.ne(targets, -1.0), cls_loss, torch.zeros(cls_loss.shape)#.cuda() \
-            )
+            cls_loss = torch.where(torch.ne(targets, -1.0), cls_loss, torch.zeros(cls_loss.shape).to(device))
 
             classification_losses.append(cls_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0))
 
@@ -454,7 +454,7 @@ class FocalLoss(nn.Module):
                 targets = torch.stack((targets_dx, targets_dy, targets_dw, targets_dh))
                 targets = targets.t()
 
-                targets = targets/torch.Tensor([[0.1, 0.1, 0.2, 0.2]])#.cuda()
+                targets = targets/torch.Tensor([[0.1, 0.1, 0.2, 0.2]]).to(device)
 
 
                 negative_indices = 1 - positive_indices
@@ -468,8 +468,7 @@ class FocalLoss(nn.Module):
                 )
                 regression_losses.append(regression_loss.mean())
             else:
-                regression_losses.append(torch.tensor(0).float()#.cuda() \
-                )
+                regression_losses.append(torch.tensor(0).float().to(device))
 
         return torch.stack(classification_losses).mean(dim=0, keepdim=True), torch.stack(regression_losses).mean(dim=0, keepdim=True)
 
@@ -690,6 +689,7 @@ class ResNet(nn.Module):
 
         if self.training:
             img_batch, annotations = inputs
+            annotations = annotations.float()
         else:
             img_batch = inputs
 
@@ -712,9 +712,10 @@ class ResNet(nn.Module):
         anchors = self.anchors(img_batch)
 
         if self.training:
-            return self.focalLoss(classification, regression, anchors, annotations)
+            classification_loss, regression_loss = self.focalLoss(classification, regression, anchors, annotations)
+            combined_loss = classification_loss.mean() + regression_loss.mean()
+            return combined_loss
         else:
-
 
             transformed_anchors = self.regressBoxes(anchors, regression)
             transformed_anchors = self.clipBoxes(transformed_anchors, img_batch)
