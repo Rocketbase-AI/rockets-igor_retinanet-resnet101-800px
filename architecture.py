@@ -686,7 +686,6 @@ class ResNet(nn.Module):
                 layer.eval()
 
     def forward(self, inputs):
-
         if self.training:
             img_batch, annotations = inputs
             annotations = annotations.float()
@@ -746,6 +745,7 @@ class ResNet(nn.Module):
 
             out = torch.cat((transformed_anchors, scores), dim=2)
             out = torch.cat((out, classification), dim=2)
+
             return out
             #return transformed_anchors, scores, classification
             #return [nms_scores, nms_class, transformed_anchors[0, anchors_nms_idx, :]]

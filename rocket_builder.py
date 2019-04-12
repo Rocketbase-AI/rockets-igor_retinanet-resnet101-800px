@@ -1,11 +1,13 @@
 import os
 from .architecture import resnet50
 import torch
+import torch.nn as nn
 from torchvision import transforms
 import types
 from PIL import Image, ImageDraw
 import numpy as np
-
+import math
+from .architecture import ClassificationModel
 
 def load_classes(path):
     """
@@ -359,9 +361,22 @@ def preprocess(self, img: Image, labels: list = None) -> torch.Tensor:
     return out_tensor, filled_labels.unsqueeze(0)
 
 
+def rebuild_head(self, num_classes):
+    """Rebuilds layers needed to train on dataset with different amount of classes
 
-#    out_tensor = padding(out_tensor)
- #   return out_tensor
+    Use this method to adapt the network structure to a new dataset.
+    """
+    self.num_classes = num_classes
+    device = "cpu" if not next(self.classificationModel.parameters()).is_cuda else "cuda"
+
+    classifier = ClassificationModel(256, num_classes=num_classes)
+    classifier.output.weight.data.fill_(0)
+    prior = 0.01
+    classifier.output.bias.data.fill_(-math.log((1.0 - prior) / prior))
+
+    self.classificationModel = classifier
+    self.to(device)
+
 
 
 def build():
@@ -379,6 +394,7 @@ def build():
     model.preprocess = types.MethodType(preprocess, model)
     model.label_to_class = types.MethodType(label_to_class, model)
     model.train_forward = types.MethodType(train_forward, model)
+    model.rebuild_head = types.MethodType(rebuild_head, model)
     setattr(model, 'classes', classes)
 
     return model
