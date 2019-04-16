@@ -9,6 +9,7 @@ import numpy as np
 import math
 from .architecture import ClassificationModel
 
+
 def load_classes(path):
     """
     Loads class labels at 'path'
@@ -23,6 +24,7 @@ def label_to_class(self, label: int) -> str:
     """
     return self.classes[label]
 
+
 def clamp(n, minn, maxn):
     """Make sure n is between minn and maxn
 
@@ -32,6 +34,7 @@ def clamp(n, minn, maxn):
         maxn (number): maximum number allowed
     """
     return max(min(maxn, n), minn)
+
 
 def postprocess(self, detections: torch.Tensor, input_img: Image, visualize: bool = False):
     """Converts pytorch tensor into interpretable format
@@ -48,56 +51,50 @@ def postprocess(self, detections: torch.Tensor, input_img: Image, visualize: boo
         visualize (bool): If True outputs image with annotations else a list of bounding boxes
     """
     img = np.array(input_img)
-    img_height, img_width, _ =  img.shape
+    orig_w, orig_h = input_img.size
 
-    detections = non_max_suppression(detections.clone().detach(), 80)[0]
+    detections = non_max_suppression(detections.clone().detach(), self.num_classes)[0]
 
     new_w, new_h, pad_w, pad_h, scale = get_new_size_and_padding(input_img)
-
-    # The amount of padding that was added
-    #pad_w = max(img.shape[0] - img.shape[1], 0) * (new_w / max(img.shape))
-    #pad_h = max(img.shape[1] - img.shape[0], 0) * (new_h / max(img.shape))
-    # Image height and width after padding is removed
-
 
     unpad_h = new_h
     unpad_w = new_w
 
     list_detections = []
-    for detection in detections:
-        # print(detection.int())
-        x1, y1, x2, y2, conf, cls_conf, cls_pred = detection.data.cpu().numpy()
-        # # Rescale coordinates to original dimensions
-        # box_h = ((y2 - y1) / unpad_h) * img.shape[0]
-        # box_w = ((x2 - x1) / unpad_w) * img.shape[1]
-        # y1 = ((y1 - pad_h // 2) / unpad_h) * img.shape[0]
-        # x1 = ((x1 - pad_w // 2) / unpad_w) * img.shape[1]
+    if detections is not None:
+        for detection in detections:
+            x1, y1, x2, y2, conf, cls_conf, cls_pred = detection.data.cpu().numpy()
 
-        # list_detections.append((x1, y1, box_h, box_w, conf, cls_conf, cls_pred))
+            scale_x = orig_w / new_w
+            scale_y = orig_h / new_h
 
-        # Rescale coordinates to original dimensions
-        x1 = ((x1 - pad_w // 2) / unpad_w) * img_width
-        y1 = ((y1 - pad_h // 2) / unpad_h) * img_height
+            # remove padding
+            x1 -= pad_w // 2
+            y1 -= pad_h // 2
+            x2 -= pad_w // 2
+            y2 -= pad_h // 2
 
-        x2 = ((x2 - pad_w // 2) / unpad_w) * img_width
-        y2 = ((y2 - pad_h // 2) / unpad_h) * img_height
-        
-        # Standardize the output
-        topLeft_x = int(clamp(round(x1), 0, img_width))
-        topLeft_y = int(clamp(round(y1), 0, img_height))
+            x1 *= scale_x
+            y1 *= scale_y
+            x2 *= scale_x
+            y2 *= scale_y
 
-        bottomRight_x = int(clamp(round(x2), 0, img_width))
-        bottomRight_y = int(clamp(round(y2), 0, img_height))
+            # Standardize the output
+            topLeft_x = int(clamp(round(x1), 0, orig_w))
+            topLeft_y = int(clamp(round(y1), 0, orig_h))
 
-        width = abs(bottomRight_x - topLeft_x) + 1
-        height = abs(bottomRight_y - topLeft_y) + 1
+            bottomRight_x = int(clamp(round(x2), 0, orig_w))
+            bottomRight_y = int(clamp(round(y2), 0, orig_h))
 
-        bbox_confidence = clamp(conf, 0, 1)
+            width = abs(bottomRight_x - topLeft_x) + 1
+            height = abs(bottomRight_y - topLeft_y) + 1
 
-        class_name = str(self.label_to_class(int(cls_pred)))
-        class_confidence = clamp(cls_conf, 0, 1)
+            bbox_confidence = clamp(conf, 0, 1)
 
-        list_detections.append({
+            class_name = str(self.label_to_class(int(cls_pred)))
+            class_confidence = clamp(cls_conf, 0, 1)
+
+            list_detections.append({
                 'topLeft_x': topLeft_x,
                 'topLeft_y': topLeft_y,
                 'width': width,
@@ -113,19 +110,22 @@ def postprocess(self, detections: torch.Tensor, input_img: Image, visualize: boo
         for detection in list_detections:
             # Extract information from the detection
             topLeft = (detection['topLeft_x'], detection['topLeft_y'])
-            bottomRight = (detection['topLeft_x'] + detection['width'] - line_width, detection['topLeft_y'] + detection['height']- line_width)
+            bottomRight = (detection['topLeft_x'] + detection['width'] - line_width,
+                           detection['topLeft_y'] + detection['height'] - line_width)
             class_name = detection['class_name']
             bbox_confidence = detection['bbox_confidence']
             class_confidence = detection['class_confidence']
 
             # Draw the bounding boxes and the information related to it
             ctx.rectangle([topLeft, bottomRight], outline=(255, 0, 0, 255), width=line_width)
-            ctx.text((topLeft[0] + 5, topLeft[1] + 10), text="{}, {:.2f}, {:.2f}".format(class_name, bbox_confidence, class_confidence))
+            ctx.text((topLeft[0] + 5, topLeft[1] + 10),
+                     text="{}, {:.2f}, {:.2f}".format(class_name, bbox_confidence, class_confidence))
 
         del ctx
         return img_out
 
     return list_detections
+
 
 def non_max_suppression(prediction, num_classes, conf_thres=0.5, nms_thres=0.4):
     """
@@ -134,14 +134,6 @@ def non_max_suppression(prediction, num_classes, conf_thres=0.5, nms_thres=0.4):
     Returns detections with shape:
         (x1, y1, x2, y2, object_conf, class_score, class_pred)
     """
-
-    # From (center x, center y, width, height) to (x1, y1, x2, y2)
-    # box_corner = prediction.new(prediction.shape)
-    # box_corner[:, :, 0] = prediction[:, :, 0] - prediction[:, :, 2] / 2
-    # box_corner[:, :, 1] = prediction[:, :, 1] - prediction[:, :, 3] / 2
-    # box_corner[:, :, 2] = prediction[:, :, 0] + prediction[:, :, 2] / 2
-    # box_corner[:, :, 3] = prediction[:, :, 1] + prediction[:, :, 3] / 2
-    # prediction[:, :, :4] = box_corner[:, :, :4]
 
     output = [None for _ in range(len(prediction))]
     for image_i, image_pred in enumerate(prediction):
@@ -187,6 +179,7 @@ def non_max_suppression(prediction, num_classes, conf_thres=0.5, nms_thres=0.4):
             )
 
     return output
+
 
 def bbox_iou(box1, box2, x1y1x2y2=True):
     """
@@ -241,8 +234,8 @@ def get_new_size_and_padding(img: Image):
     new_h = int(round(h * scale))
     new_w = int(round((w * scale)))
 
-    pad_w = 32 - new_h % 32
-    pad_h = 32 - new_w % 32
+    pad_w = 32 - new_w % 32
+    pad_h = 32 - new_h % 32
 
     return new_w, new_h, pad_w, pad_h, scale
 
@@ -279,16 +272,16 @@ def preprocess(self, img: Image, labels: list = None) -> torch.Tensor:
     elif type(img) == torch.Tensor:
         # list of tensors
         img = img[0].cpu()
-        img = transforms.ToPILImage()(img)
-    elif "PIL" in str(type(img)): # type if file just has been opened
+        img = transforms.ToPILImage()(img).convert("RGB")
+    elif "PIL" in str(type(img)):  # type if file just has been opened
         img = img.convert("RGB")
     else:
         raise TypeError("wrong input type: got {} but expected list of PIL.Image, "
                         "single PIL.Image or torch.Tensor".format(type(img)))
 
-    new_w, new_h, pad_w, pad_h, _ = get_new_size_and_padding(img)
+    orig_w, orig_h = img.size
 
-    # print(x.size, new_w, new_h)
+    new_w, new_h, pad_w, pad_h, _ = get_new_size_and_padding(img)
 
     input_transform = transforms.Compose([
         transforms.Resize((new_h, new_w)),
@@ -297,64 +290,44 @@ def preprocess(self, img: Image, labels: list = None) -> torch.Tensor:
                              (0.229, 0.224, 0.225))
     ])
 
-    padding = torch.nn.ConstantPad2d((pad_h//2, pad_h//2, pad_w//2, pad_w//2), 0.0)
+    padding = torch.nn.ConstantPad2d((pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2), 0.0)
 
     out_tensor = input_transform(img).unsqueeze(0)
+
     out_tensor = padding(out_tensor)
 
     if labels is None:
         return out_tensor
 
-    # if type(img) == list:
-    #     out_tensor = None
-    #     for elem in img:
-    #         out = input_transform(elem).unsqueeze(0)
-    #         if out_tensor is not None:
-    #             torch.cat((out_tensor, out), 0)
-    #         else:
-    #             out_tensor = out
-    # else:
-    #     out_tensor = input_transform(img).unsqueeze(0)
-
-    max_objects = 50
+    max_objects = 80
     filled_labels = np.zeros((max_objects, 5))  # max objects in an image for training=50, 5=(x1,y1,x2,y2,category_id)
     if labels is not None:
         for idx, label in enumerate(labels):
 
-            # add padding
-            label[0] += pad_w//2
-            label[1] += pad_h//2
-            label[2] += pad_w // 2
-            label[3] += pad_h // 2
-
             padded_w = new_w + pad_w
             padded_h = new_h + pad_h
 
-            # resize coordinates to match Yolov3 input size
-            scale_x = new_w / padded_w
-            scale_y = new_h / padded_h
+            scale_x = new_w / orig_w
+            scale_y = new_h / orig_h
 
             label[0] *= scale_x
             label[1] *= scale_y
             label[2] *= scale_x
             label[3] *= scale_y
 
+            # add padding
+            label[0] += pad_w // 2
+            label[1] += pad_h // 2
+            label[2] += pad_w // 2
+            label[3] += pad_h // 2
+
             x1 = label[0]
             y1 = label[1]
             x2 = label[2]
             y2 = label[3]
 
-            # x1 = label[0] / new_w
-            # y1 = label[1] / new_h
-            #
-            # cw = (label[2]) / new_w
-            # ch = (label[3]) / new_h
-            #
-            # cx = (x1 + (x1 + cw)) / 2.0
-            # cy = (y1 + (y1 + ch)) / 2.0
-
             filled_labels[idx] = np.asarray([x1, y1, x2, y2, label[4]])
-            if idx >= max_objects:
+            if idx >= max_objects - 1:
                 break
     filled_labels = torch.from_numpy(filled_labels)
 
@@ -378,9 +351,21 @@ def rebuild_head(self, num_classes):
     self.to(device)
 
 
+def freeze_body(self):
+    """Rebuilds layers needed to train on dataset with different amount of classes
+
+    Use this method to adapt the network structure to a new dataset.
+    """
+    for p in self.parameters():  # reset requires_grad
+        p.requires_grad = False
+
+    for p in self.classificationModel.parameters():
+        p.requires_grad = True
+
 
 def build():
-    model = resnet50(num_classes=80, pretrained=False)
+    num_classes = 80
+    model = resnet50(num_classes=num_classes, pretrained=False)
 
     model.load_state_dict(torch.load(os.path.join(os.path.realpath(os.path.dirname(__file__)), "weights.pth"),
                                      map_location=torch.device('cpu')))
@@ -395,7 +380,8 @@ def build():
     model.label_to_class = types.MethodType(label_to_class, model)
     model.train_forward = types.MethodType(train_forward, model)
     model.rebuild_head = types.MethodType(rebuild_head, model)
+    model.freeze_body = types.MethodType(freeze_body, model)
     setattr(model, 'classes', classes)
+    setattr(model, 'num_classes', num_classes)
 
     return model
-

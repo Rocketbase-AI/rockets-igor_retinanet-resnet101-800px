@@ -5,7 +5,6 @@ import torch.nn as nn
 import numpy as np
 import torch.utils.model_zoo as model_zoo
 
-
 model_urls = {
     'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
     'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth',
@@ -23,14 +22,6 @@ def non_max_suppression(prediction, num_classes, conf_thres=0.5, nms_thres=0.4):
         (x1, y1, x2, y2, object_conf, class_score, class_pred)
     """
 
-    # From (center x, center y, width, height) to (x1, y1, x2, y2)
-    #box_corner = prediction.new(prediction.shape)
-    #box_corner[:, :, 0] = prediction[:, :, 0] - prediction[:, :, 2] / 2
-    #box_corner[:, :, 1] = prediction[:, :, 1] - prediction[:, :, 3] / 2
-    #box_corner[:, :, 2] = prediction[:, :, 0] + prediction[:, :, 2] / 2
-    #box_corner[:, :, 3] = prediction[:, :, 1] + prediction[:, :, 3] / 2
-    #prediction[:, :, :4] = box_corner[:, :, :4]
-
     output = [None for _ in range(len(prediction))]
     for image_i, image_pred in enumerate(prediction):
         # Filter out confidence scores below threshold
@@ -40,13 +31,13 @@ def non_max_suppression(prediction, num_classes, conf_thres=0.5, nms_thres=0.4):
         if not image_pred.size(0):
             continue
         # Get score and class with highest confidence
-        class_conf, class_pred = torch.max(image_pred[:, 5 : 5 + num_classes], 1, keepdim=True)
+        class_conf, class_pred = torch.max(image_pred[:, 5: 5 + num_classes], 1, keepdim=True)
         # Detections ordered as (x1, y1, x2, y2, obj_conf, class_conf, class_pred)
         detections = torch.cat((image_pred[:, :5], class_conf.float(), class_pred.float()), 1)
         # Iterate through all predicted classes
         unique_labels = detections[:, -1].cpu().unique()
         if prediction.is_cuda:
-            unique_labels = unique_labels#.cuda()
+            unique_labels = unique_labels  # .cuda()
         for c in unique_labels:
             # Get the detections with the particular class
             detections_class = detections[detections[:, -1] == c]
@@ -282,14 +273,13 @@ class BBoxTransform(nn.Module):
     def __init__(self, mean=None, std=None):
         super(BBoxTransform, self).__init__()
         if mean is None:
-            self.mean = torch.from_numpy(np.array([0, 0, 0, 0]).astype(np.float32))#.cuda()
+            self.mean = torch.from_numpy(np.array([0, 0, 0, 0]).astype(np.float32))  # .cuda()
         else:
             self.mean = mean
         if std is None:
-            self.std = torch.from_numpy(np.array([0.1, 0.1, 0.2, 0.2]).astype(np.float32))#.cuda()
+            self.std = torch.from_numpy(np.array([0.1, 0.1, 0.2, 0.2]).astype(np.float32))  # .cuda()
         else:
             self.std = std
-
 
     def forward(self, boxes, deltas):
 
@@ -356,23 +346,20 @@ def calc_iou(a, b):
 
 
 class FocalLoss(nn.Module):
-    #def __init__(self):
 
-    def forward(self, classifications, regressions, anchors, annotations):
+    def forward(self, classifications, regressions, anchors, annotations, alpha=0.25, gamma=2.0):
         device = "cpu" if classifications.type() == torch.FloatTensor().type() else "cuda"
 
-        alpha = 0.25
-        gamma = 2.0
         batch_size = classifications.shape[0]
         classification_losses = []
         regression_losses = []
 
         anchor = anchors[0, :, :]
 
-        anchor_widths  = anchor[:, 2] - anchor[:, 0]
+        anchor_widths = anchor[:, 2] - anchor[:, 0]
         anchor_heights = anchor[:, 3] - anchor[:, 1]
-        anchor_ctr_x   = anchor[:, 0] + 0.5 * anchor_widths
-        anchor_ctr_y   = anchor[:, 1] + 0.5 * anchor_heights
+        anchor_ctr_x = anchor[:, 0] + 0.5 * anchor_widths
+        anchor_ctr_y = anchor[:, 1] + 0.5 * anchor_heights
 
         for j in range(batch_size):
 
@@ -390,12 +377,9 @@ class FocalLoss(nn.Module):
 
             classification = torch.clamp(classification, 1e-4, 1.0 - 1e-4)
 
-            IoU = calc_iou(anchors[0, :, :], bbox_annotation[:, :4]) # num_anchors x num_annotations
+            IoU = calc_iou(anchors[0, :, :], bbox_annotation[:, :4])  # num_anchors x num_annotations
 
-            IoU_max, IoU_argmax = torch.max(IoU, dim=1) # num_anchors x 1
-
-            #import pdb
-            #pdb.set_trace()
+            IoU_max, IoU_argmax = torch.max(IoU, dim=1)  # num_anchors x 1
 
             # compute the loss for classification
             targets = torch.ones(classification.shape) * -1
@@ -420,12 +404,11 @@ class FocalLoss(nn.Module):
 
             bce = -(targets * torch.log(classification) + (1.0 - targets) * torch.log(1.0 - classification))
 
-            # cls_loss = focal_weight * torch.pow(bce, gamma)
             cls_loss = focal_weight * bce
 
             cls_loss = torch.where(torch.ne(targets, -1.0), cls_loss, torch.zeros(cls_loss.shape).to(device))
 
-            classification_losses.append(cls_loss.sum()/torch.clamp(num_positive_anchors.float(), min=1.0))
+            classification_losses.append(cls_loss.sum() / torch.clamp(num_positive_anchors.float(), min=1.0))
 
             # compute the loss for regression
 
@@ -437,13 +420,13 @@ class FocalLoss(nn.Module):
                 anchor_ctr_x_pi = anchor_ctr_x[positive_indices]
                 anchor_ctr_y_pi = anchor_ctr_y[positive_indices]
 
-                gt_widths  = assigned_annotations[:, 2] - assigned_annotations[:, 0]
+                gt_widths = assigned_annotations[:, 2] - assigned_annotations[:, 0]
                 gt_heights = assigned_annotations[:, 3] - assigned_annotations[:, 1]
-                gt_ctr_x   = assigned_annotations[:, 0] + 0.5 * gt_widths
-                gt_ctr_y   = assigned_annotations[:, 1] + 0.5 * gt_heights
+                gt_ctr_x = assigned_annotations[:, 0] + 0.5 * gt_widths
+                gt_ctr_y = assigned_annotations[:, 1] + 0.5 * gt_heights
 
                 # clip widths to 1
-                gt_widths  = torch.clamp(gt_widths, min=1)
+                gt_widths = torch.clamp(gt_widths, min=1)
                 gt_heights = torch.clamp(gt_heights, min=1)
 
                 targets_dx = (gt_ctr_x - anchor_ctr_x_pi) / anchor_widths_pi
@@ -454,8 +437,7 @@ class FocalLoss(nn.Module):
                 targets = torch.stack((targets_dx, targets_dy, targets_dw, targets_dh))
                 targets = targets.t()
 
-                targets = targets/torch.Tensor([[0.1, 0.1, 0.2, 0.2]]).to(device)
-
+                targets = targets / torch.Tensor([[0.1, 0.1, 0.2, 0.2]]).to(device)
 
                 negative_indices = 1 - positive_indices
 
@@ -470,8 +452,8 @@ class FocalLoss(nn.Module):
             else:
                 regression_losses.append(torch.tensor(0).float().to(device))
 
-        return torch.stack(classification_losses).mean(dim=0, keepdim=True), torch.stack(regression_losses).mean(dim=0, keepdim=True)
-
+        return torch.stack(classification_losses).mean(dim=0, keepdim=True), torch.stack(regression_losses).mean(dim=0,
+                                                                                                                 keepdim=True)
 
 
 class PyramidFeatures(nn.Module):
@@ -725,30 +707,16 @@ class ResNet(nn.Module):
 
             if scores_over_thresh.sum() == 0:
                 # no boxes to NMS, just return
-                return [torch.zeros(0), torch.zeros(0), torch.zeros(0, 4)]
+                return torch.zeros((1, 1, self.num_classes + 5))
 
             classification = classification[:, scores_over_thresh, :]
             transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
             scores = scores[:, scores_over_thresh, :]
 
-            #non_max_suppression()
-            #anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.5)
-
-            #nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(dim=1)
-
-            # box_corner = transformed_anchors.new(transformed_anchors.shape)
-            # box_corner[:, :, 0] = transformed_anchors[:, :, 0] - transformed_anchors[:, :, 2] / 2
-            # box_corner[:, :, 1] = transformed_anchors[:, :, 1] - transformed_anchors[:, :, 3] / 2
-            # box_corner[:, :, 2] = transformed_anchors[:, :, 0] + transformed_anchors[:, :, 2] / 2
-            # box_corner[:, :, 3] = transformed_anchors[:, :, 1] + transformed_anchors[:, :, 3] / 2
-            # transformed_anchors[:, :, :4] = box_corner[:, :, :4]
-
             out = torch.cat((transformed_anchors, scores), dim=2)
             out = torch.cat((out, classification), dim=2)
 
             return out
-            #return transformed_anchors, scores, classification
-            #return [nms_scores, nms_class, transformed_anchors[0, anchors_nms_idx, :]]
 
 
 def resnet50(num_classes, pretrained=False, **kwargs):
