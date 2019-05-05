@@ -1,0 +1,23 @@
+{
+    "builder": "igor",
+    "model": "retinanet",
+    "family": "image_object_detection",
+    "parent": null,
+    "dataset": "coco80",
+    "isTrainable": false,
+    "isPrivate": false,
+    "blueprint": [
+        "__init__.py",
+        "architecture.py",
+        "rocket_builder.py",
+        "weights.pth",
+        "config.json",
+        "info.json",
+        "coco_classes.json",
+        "README.md"
+    ],
+    "rocketRepoUrl": "https://gitlab.com/mirage-technologies/rockets/retinanet",
+    "paperUrl": "https://arxiv.org/abs/1708.02002",
+    "originRepoUrl": "https://github.com/yhenon/pytorch-retinanet",
+    "description": "One-Stage Detector, With Focal Loss and RetinaNet Using ResNet+FPN, Surpass the Accuracy of Two-Stage Detectors, Faster R-CNN"
+}
