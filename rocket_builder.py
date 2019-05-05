@@ -2,11 +2,12 @@ import os
 from .architecture import resnet50
 import torch
 import torch.nn as nn
-from torchvision import transforms
+from torchvision import transforms, utils
 import types
 from PIL import Image, ImageDraw
 import numpy as np
 import math
+import json
 from .architecture import ClassificationModel
 
 
@@ -14,15 +15,12 @@ def load_classes(path):
     """
     Loads class labels at 'path'
     """
-    fp = open(path, "r")
-    names = fp.read().split("\n")[:-1]
-    return names
+    with open(path, "r") as f:
+        class_dict = json.load(f, object_hook=lambda d: {int(k) if k.lstrip('-').isdigit() else k: v for k, v in
+                                                         d.items()})
 
-
-def label_to_class(self, label: int) -> str:
-    """Returns string of class name given index
-    """
-    return self.classes[label]
+    inverted_dict = dict([[v, k] for k, v in class_dict.items()])
+    return class_dict, inverted_dict
 
 
 def clamp(n, minn, maxn):
@@ -91,17 +89,18 @@ def postprocess(self, detections: torch.Tensor, input_img: Image, visualize: boo
 
             bbox_confidence = clamp(conf, 0, 1)
 
-            class_name = str(self.label_to_class(int(cls_pred)))
-            class_confidence = clamp(cls_conf, 0, 1)
+            if int(cls_pred) < self.num_classes:
+                class_name = str(self.label_to_class[int(cls_pred)])
+                class_confidence = clamp(cls_conf, 0, 1)
 
-            list_detections.append({
-                'topLeft_x': topLeft_x,
-                'topLeft_y': topLeft_y,
-                'width': width,
-                'height': height,
-                'bbox_confidence': bbox_confidence,
-                'class_name': class_name,
-                'class_confidence': class_confidence})
+                list_detections.append({
+                    'topLeft_x': topLeft_x,
+                    'topLeft_y': topLeft_y,
+                    'width': width,
+                    'height': height,
+                    'bbox_confidence': bbox_confidence,
+                    'class_name': class_name,
+                    'class_confidence': class_confidence})
 
     if visualize:
         line_width = 2
@@ -284,7 +283,7 @@ def preprocess(self, img: Image, labels: list = None) -> torch.Tensor:
     new_w, new_h, pad_w, pad_h, _ = get_new_size_and_padding(img)
 
     input_transform = transforms.Compose([
-        transforms.Resize((new_h, new_w)),
+        transforms.Resize((new_h, new_w), Image.BILINEAR),
         transforms.ToTensor(),
         transforms.Normalize((0.485, 0.456, 0.406),
                              (0.229, 0.224, 0.225))
@@ -373,15 +372,18 @@ def build():
     model.postprocess = types.MethodType(postprocess, model)
     model.preprocess = types.MethodType(preprocess, model)
 
-    classes = load_classes(os.path.join(os.path.realpath(os.path.dirname(__file__)), "coco.data"))
+    label_to_class, class_to_label = load_classes(
+        os.path.join(os.path.realpath(os.path.dirname(__file__)), "coco_classes.json"))
 
     model.postprocess = types.MethodType(postprocess, model)
     model.preprocess = types.MethodType(preprocess, model)
-    model.label_to_class = types.MethodType(label_to_class, model)
+    # model.label_to_class = types.MethodType(label_to_class, model)
+    # model.class_to_label = types.MethodType(class_to_label, model)
     model.train_forward = types.MethodType(train_forward, model)
     model.rebuild_head = types.MethodType(rebuild_head, model)
     model.freeze_body = types.MethodType(freeze_body, model)
-    setattr(model, 'classes', classes)
+    setattr(model, 'label_to_class', label_to_class)
+    setattr(model, 'class_to_label', class_to_label)
     setattr(model, 'num_classes', num_classes)
 
     return model
