@@ -1,5 +1,5 @@
 import os
-from .architecture import resnet50
+from .architecture import resnet101
 import torch
 import torch.nn as nn
 from torchvision import transforms, utils
@@ -104,7 +104,7 @@ def postprocess(self, detections: torch.Tensor, input_img: Image, visualize: boo
 
     if visualize:
         line_width = 2
-        img_out = input_img
+        img_out = input_img.copy()
         ctx = ImageDraw.Draw(img_out, 'RGBA')
         for detection in list_detections:
             # Extract information from the detection
@@ -214,8 +214,8 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
 
 
 def get_new_size_and_padding(img: Image):
-    min_side = 608
-    max_side = 1024
+    min_side = 800
+    max_side = 1472
 
     w, h = img.size
     smallest_side = min(h, w)
@@ -364,7 +364,7 @@ def freeze_body(self):
 
 def build():
     num_classes = 80
-    model = resnet50(num_classes=num_classes, pretrained=False)
+    model = resnet101(num_classes=num_classes, pretrained=False)
 
     model.load_state_dict(torch.load(os.path.join(os.path.realpath(os.path.dirname(__file__)), "weights.pth"),
                                      map_location=torch.device('cpu')))
