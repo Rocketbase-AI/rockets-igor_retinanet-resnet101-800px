@@ -1,5 +1,5 @@
 import os
-from .architecture import resnet101
+from .model import resnet101
 import torch
 import torch.nn as nn
 from torchvision import transforms, utils
@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw
 import numpy as np
 import math
 import json
-from .architecture import ClassificationModel
+from .model import ClassificationModel
 
 
 def load_classes(path):
